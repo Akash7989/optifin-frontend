@@ -1,101 +1,178 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { Activity, CircleAlert, LoaderCircle } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+
+import { AdvisorySummary } from "@/components/AdvisorySummary";
+import { ChatInterface } from "@/components/ChatInterface";
+import { GoalChart } from "@/components/GoalChart";
+import { InsuranceMeter } from "@/components/InsuranceMeter";
+import { LoanCard } from "@/components/LoanCard";
+import { errorMessage, postJson } from "@/lib/api";
+import { explainPayload } from "@/lib/explain";
+import type { ExplainResponse, SimulationResult, UserProfile } from "@/lib/types";
+
+export default function Dashboard() {
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [result, setResult] = useState<SimulationResult | null>(null);
+  const [simulating, setSimulating] = useState(false);
+  const [simError, setSimError] = useState<string | null>(null);
+  const [narrative, setNarrative] = useState<string | null>(null);
+  const [explaining, setExplaining] = useState(false);
+  const [explainError, setExplainError] = useState<string | null>(null);
+  const runId = useRef(0);
+
+  const explain = useCallback(async (p: UserProfile, r: SimulationResult, id: number) => {
+    setExplaining(true);
+    setExplainError(null);
+    try {
+      const response = await postJson<ExplainResponse>("/api/explain", { profile: p, results: explainPayload(r) });
+      if (runId.current === id) setNarrative(response.narrative_explanation);
+    } catch (err) {
+      if (runId.current === id) setExplainError(errorMessage(err));
+    } finally {
+      if (runId.current === id) setExplaining(false);
+    }
+  }, []);
+
+  const analyse = useCallback(
+    async (p: UserProfile) => {
+      const id = ++runId.current;
+      setProfile(p);
+      setResult(null);
+      setNarrative(null);
+      setSimError(null);
+      setSimulating(true);
+      try {
+        const r = await postJson<SimulationResult>("/api/simulate", p);
+        if (runId.current !== id) return;
+        setResult(r);
+        setSimulating(false);
+        void explain(p, r, id);
+      } catch (err) {
+        if (runId.current === id) {
+          setSimError(errorMessage(err));
+          setSimulating(false);
+        }
+      }
+    },
+    [explain],
+  );
+
+  const reset = useCallback(() => {
+    runId.current++;
+    setProfile(null);
+    setResult(null);
+    setNarrative(null);
+    setSimError(null);
+    setExplainError(null);
+    setSimulating(false);
+    setExplaining(false);
+  }, []);
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="min-h-screen">
+      <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-2">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-400 to-indigo-500">
+              <Activity className="h-4 w-4 text-slate-950" aria-hidden />
+            </span>
+            <span className="text-base font-semibold tracking-tight">
+              OptiFin<span className="text-emerald-400">.ai</span>
+            </span>
+          </div>
+          <p className="hidden text-xs text-slate-500 sm:block">Home loan · Life protection · Goal simulation</p>
+        </div>
+      </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+      <main className="mx-auto grid max-w-[1500px] gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[400px_minmax(0,1fr)]">
+        <div className="lg:sticky lg:top-5 lg:h-[calc(100vh-6.5rem)]">
+          <ChatInterface onProfileReady={analyse} onReset={reset} />
+        </div>
+
+        <div className="min-w-0 space-y-5">
+          {simError && (
+            <div className="flex items-start justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+              <span className="flex items-start gap-2">
+                <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden /> {simError}
+              </span>
+              {profile && (
+                <button type="button" onClick={() => void analyse(profile)} className="shrink-0 text-xs underline">
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {simulating && (
+            <div className="grid gap-5 xl:grid-cols-2" aria-busy="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className={`h-72 animate-pulse rounded-2xl border border-slate-800 bg-slate-900/60 ${i === 2 ? "xl:col-span-2" : ""}`} />
+              ))}
+              <p className="flex items-center gap-2 text-sm text-slate-400 xl:col-span-2">
+                <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> Running 10,000-path simulation…
+              </p>
+            </div>
+          )}
+
+          {!result && !simulating && !simError && <EmptyState />}
+
+          {result && profile && (
+            <>
+              <div className="grid gap-5 xl:grid-cols-2">
+                <LoanCard result={result} />
+                <InsuranceMeter result={result} />
+              </div>
+              <GoalChart
+                key={runId.current}
+                profile={profile}
+                initialGoal={result.goal}
+                simulationPaths={result.assumptions.simulation_paths}
+              />
+              <AdvisorySummary
+                result={result}
+                narrative={narrative}
+                loading={explaining}
+                error={explainError}
+                onRetry={() => void explain(profile, result, runId.current)}
+              />
+              {result.notes.length > 0 && (
+                <ul className="space-y-1 text-xs text-slate-500">
+                  {result.notes.map((n) => (
+                    <li key={n}>· {n}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
         </div>
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+    </div>
+  );
+}
+
+function EmptyState() {
+  const steps = [
+    ["Tell us about you", "Describe your income, loans, savings and the home you want, in plain language."],
+    ["We calculate", "RBI LTV and FOIR limits, IALM 2012-14 life value, and 10,000 market scenarios."],
+    ["You adjust", "Move the SIP slider to see how your odds of reaching the downpayment change."],
+  ];
+  return (
+    <div className="flex min-h-[420px] flex-col justify-center rounded-2xl border border-dashed border-slate-800 p-8">
+      <h1 className="text-xl font-semibold tracking-tight">Your home-buying plan, stress-tested.</h1>
+      <p className="mt-2 max-w-xl text-sm text-slate-400">
+        Start the conversation on the left. Your dashboard appears here once your profile is complete.
+      </p>
+      <ol className="mt-6 grid gap-3 sm:grid-cols-3">
+        {steps.map(([title, text], i) => (
+          <li key={title} className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+            <span className="text-xs font-semibold text-emerald-400">0{i + 1}</span>
+            <p className="mt-1 text-sm font-medium">{title}</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-400">{text}</p>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
